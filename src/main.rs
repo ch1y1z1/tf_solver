@@ -1,3 +1,5 @@
+use std::iter;
+
 #[derive(Clone, Debug)]
 struct Operand {
     value: f64,
@@ -8,12 +10,11 @@ struct Operator<T> {
     symbol: String,
     function: T,
 }
+
 impl<T> std::fmt::Debug for Operator<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Operator")
             .field("symbol", &self.symbol)
-            // Cannot easily print function pointer, so omit it or show placeholder
-            .field("function", &format_args!("fn(...)"))
             .finish()
     }
 }
@@ -21,18 +22,17 @@ impl<T> std::fmt::Debug for Operator<T> {
 type UnaryOperator = Operator<fn(f64) -> f64>;
 type BinaryOperator = Operator<fn(f64, f64) -> f64>;
 
-#[derive(Clone, Debug)] // Add Clone and Debug
+#[derive(Clone, Debug)]
 enum Token {
     Operand(Operand),
     UnaryOperator(UnaryOperator),
     BinaryOperator(BinaryOperator),
 }
 
-// Helper function to check if a sequence of tokens is a valid RPN expression
 fn is_valid_rpn(tokens: &[Token]) -> bool {
-    let mut stack_size: isize = 0; // Use isize to allow temporary negative values if needed, though logic prevents it
+    let mut stack_size: isize = 0;
     if tokens.is_empty() {
-        return false; // An empty expression isn't valid in this context
+        return false;
     }
     for token in tokens {
         match token {
@@ -41,107 +41,170 @@ fn is_valid_rpn(tokens: &[Token]) -> bool {
             }
             Token::UnaryOperator(_) => {
                 if stack_size < 1 {
-                    return false; // Not enough operands for unary operator
+                    return false;
                 }
-                // stack_size -= 1; // Pop one operand
-                // stack_size += 1; // Push result - net change is 0
             }
             Token::BinaryOperator(_) => {
                 if stack_size < 2 {
-                    return false; // Not enough operands for binary operator
+                    return false;
                 }
-                stack_size -= 1; // Pop two operands, push one result - net change is -1
+                stack_size -= 1;
             }
         }
-        // It's also crucial that the stack never becomes empty *before* the final token if operators are involved
-        // The checks stack_size < 1 and stack_size < 2 handle this implicitly.
+        if stack_size < 0 {
+            return false;
+        }
     }
-    // A valid RPN expression results in exactly one value left on the stack
     stack_size == 1
 }
 
-fn calculate(tokens: Vec<Token>) -> f64 {
+fn calculate(tokens: &[Token]) -> f64 {
+    if !is_valid_rpn(tokens) {
+        panic!("Attempting to calculate an invalid RPN sequence");
+    }
     let mut stack = Vec::new();
     for token in tokens {
         match token {
             Token::Operand(operand) => stack.push(operand.value),
             Token::UnaryOperator(operator) => {
-                // Check stack size before unwrapping for robustness, although is_valid_rpn should guarantee this
-                if stack.is_empty() {
-                    panic!("Invalid RPN sequence: unary operator needs 1 operand");
-                }
                 let value = stack.pop().unwrap();
                 stack.push((operator.function)(value));
             }
             Token::BinaryOperator(operator) => {
-                // Check stack size before unwrapping
-                if stack.len() < 2 {
-                    panic!("Invalid RPN sequence: binary operator needs 2 operands");
-                }
                 let right = stack.pop().unwrap();
                 let left = stack.pop().unwrap();
                 stack.push((operator.function)(left, right));
             }
         }
     }
-    // Check final stack size
-    if stack.len() != 1 {
-        panic!("Invalid RPN sequence: final stack size is not 1");
-    }
     stack.pop().unwrap()
 }
 
-fn generate_valid_tokens(
-    operands: &[Operand],
-    unary_operators: &[UnaryOperator],
-    binary_operators: &[BinaryOperator],
+fn generate_valid_tokens<'a>(
+    operands: &'a [Operand],
+    unary_operators: &'a [UnaryOperator],
+    binary_operators: &'a [BinaryOperator],
     max_depth: usize,
-) -> impl Iterator<Item = Vec<Token>> {
-    // Ensure input slices are not empty if they are expected to be used.
-    // Although the inner function might handle it, checking here can be clearer.
-    // Note: An expression might be valid with only operands (depth 1)
-    // or only operands and unary operators.
+) -> impl Iterator<Item = Vec<Token>> + 'a {
+    if operands.is_empty() && max_depth > 0 {}
 
     (1..=max_depth).flat_map(move |depth| {
         generate_valid_tokens_with_depth(operands, unary_operators, binary_operators, depth)
     })
 }
 
-/// Generates valid RPN token sequences based on a definition of 'depth'.
-/// Following the comments provided:
-/// - `depth` seems to relate to the total count of operands and unary operators.
-/// - `unary_operator_num` (`u`) iterates from 0 up to `depth - 1`.
-/// - `operand_num` (`n`) is defined as `depth - u`.
-/// - A valid RPN sequence with `n` operands requires `n - 1` binary operators (`b`).
-fn generate_valid_tokens_with_depth(
-    operands: &[Operand],
-    unary_operators: &[UnaryOperator],
-    binary_operators: &[BinaryOperator],
-    depth: usize, // Interpreted as: operand_num + unary_operator_num
-) -> impl Iterator<Item = Vec<Token>> {
-    (0..depth).flat_map(move |unary_operator_num| {
-        let u = unary_operator_num;
-        let n = depth - u; // Calculate operand_num based on depth and u
-
-        fn aux(
-            operands: &[Operand],
-            unary_operators: &[UnaryOperator],
-            binary_operators: &[BinaryOperator],
-            operand_num: usize,
-            unary_operator_num: usize,
-            binary_operator_num: usize,
-            acc: Vec<Token>,
-            stack_size: usize,
-        ) -> impl Iterator<Item = Vec<Token>> {
-            if unary_operator_num == 0 {
-                if binary_operator_num == 0 {
-                    return vec![acc].into_iter();
-                }
-            }
+fn aux_generate<'a>(
+    operands: &'a [Operand],
+    unary_operators: &'a [UnaryOperator],
+    binary_operators: &'a [BinaryOperator],
+    operands_needed: usize,
+    unary_ops_needed: usize,
+    binary_ops_needed: usize,
+    current_sequence: Vec<Token>,
+    stack_size: usize,
+) -> Box<dyn Iterator<Item = Vec<Token>> + 'a> {
+    if operands_needed == 0 && unary_ops_needed == 0 && binary_ops_needed == 0 {
+        if stack_size == 1 {
+            return Box::new(iter::once(current_sequence));
+        } else {
+            return Box::new(iter::empty());
         }
+    }
 
-        vec![]
-    }) // End of flat_map over unary_operator_num
+    let operand_iter: Box<dyn Iterator<Item = Vec<Token>> + 'a> =
+        if operands_needed > 0 && !operands.is_empty() {
+            let current_sequence = current_sequence.clone();
+            let iter = operands.iter().flat_map(move |op| {
+                let mut next_sequence = current_sequence.clone();
+                next_sequence.push(Token::Operand(op.clone()));
+                aux_generate(
+                    operands,
+                    unary_operators,
+                    binary_operators,
+                    operands_needed - 1,
+                    unary_ops_needed,
+                    binary_ops_needed,
+                    next_sequence,
+                    stack_size + 1,
+                )
+            });
+            Box::new(iter)
+        } else {
+            Box::new(iter::empty())
+        };
+
+    let unary_iter: Box<dyn Iterator<Item = Vec<Token>> + 'a> =
+        if unary_ops_needed > 0 && stack_size >= 1 && !unary_operators.is_empty() {
+            let current_sequence = current_sequence.clone();
+            let iter = unary_operators.iter().flat_map(move |uop| {
+                let mut next_sequence = current_sequence.clone();
+                next_sequence.push(Token::UnaryOperator(uop.clone()));
+                aux_generate(
+                    operands,
+                    unary_operators,
+                    binary_operators,
+                    operands_needed,
+                    unary_ops_needed - 1,
+                    binary_ops_needed,
+                    next_sequence,
+                    stack_size,
+                )
+            });
+            Box::new(iter)
+        } else {
+            Box::new(iter::empty())
+        };
+
+    let binary_iter: Box<dyn Iterator<Item = Vec<Token>> + 'a> =
+        if binary_ops_needed > 0 && stack_size >= 2 && !binary_operators.is_empty() {
+            let current_sequence = current_sequence.clone();
+            let iter = binary_operators.iter().flat_map(move |bop| {
+                let mut next_sequence = current_sequence.clone();
+                next_sequence.push(Token::BinaryOperator(bop.clone()));
+                aux_generate(
+                    operands,
+                    unary_operators,
+                    binary_operators,
+                    operands_needed,
+                    unary_ops_needed,
+                    binary_ops_needed - 1,
+                    next_sequence,
+                    stack_size - 1,
+                )
+            });
+            Box::new(iter)
+        } else {
+            Box::new(iter::empty())
+        };
+
+    Box::new(operand_iter.chain(unary_iter).chain(binary_iter))
+}
+
+fn generate_valid_tokens_with_depth<'a>(
+    operands: &'a [Operand],
+    unary_operators: &'a [UnaryOperator],
+    binary_operators: &'a [BinaryOperator],
+    depth: usize,
+) -> impl Iterator<Item = Vec<Token>> + 'a {
+    if depth == 0 {
+        let empty_iter: Box<dyn Iterator<Item = Vec<Token>> + 'a> = Box::new(iter::empty());
+        return empty_iter;
+    }
+
+    Box::new((0..depth).flat_map(move |unary_ops_needed| {
+        let operands_needed = depth - unary_ops_needed;
+        let binary_ops_needed = operands_needed - 1;
+        aux_generate(
+            operands,
+            unary_operators,
+            binary_operators,
+            operands_needed,
+            unary_ops_needed,
+            binary_ops_needed,
+            Vec::new(),
+            0,
+        )
+    }))
 }
 
 fn main() {
@@ -158,11 +221,10 @@ fn main() {
     let valid_tokens =
         generate_valid_tokens(&operands, &unary_operators, &binary_operators, max_depth);
     for tokens in valid_tokens {
-        println!("{:?}", tokens);
+        println!("{:?}: {}", tokens, calculate(&tokens));
     }
 }
 
-// test
 #[test]
 fn test_calculate() {
     let tokens = vec![
@@ -177,6 +239,6 @@ fn test_calculate() {
             function: |a, b| a + b,
         }),
     ];
-    let result = calculate(tokens);
+    let result = calculate(&tokens);
     assert_eq!(result, 5.0);
 }
