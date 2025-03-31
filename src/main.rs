@@ -2,6 +2,7 @@ use std::iter;
 
 #[derive(Clone, Debug)]
 struct Operand {
+    symbol: String,
     value: f64,
 }
 
@@ -11,22 +12,40 @@ struct Operator<T> {
     function: T,
 }
 
-impl<T> std::fmt::Debug for Operator<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Operator")
-            .field("symbol", &self.symbol)
-            .finish()
-    }
-}
-
 type UnaryOperator = Operator<fn(f64) -> f64>;
 type BinaryOperator = Operator<fn(f64, f64) -> f64>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum Token {
     Operand(Operand),
     UnaryOperator(UnaryOperator),
     BinaryOperator(BinaryOperator),
+}
+
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Operand(operand) => write!(f, "{}", operand.symbol),
+            Token::UnaryOperator(operator) => write!(f, "{}", operator.symbol),
+            Token::BinaryOperator(operator) => write!(f, "{}", operator.symbol),
+        }
+    }
+}
+
+struct TokenVec<'a>(&'a [Token]);
+
+impl<'a> std::fmt::Display for TokenVec<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut first = true;
+        for token in self.0 {
+            if !first {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", token)?;
+            first = false;
+        }
+        Ok(())
+    }
 }
 
 fn is_valid_rpn(tokens: &[Token]) -> bool {
@@ -59,9 +78,8 @@ fn is_valid_rpn(tokens: &[Token]) -> bool {
 }
 
 fn calculate(tokens: &[Token]) -> f64 {
-    if !is_valid_rpn(tokens) {
-        panic!("Attempting to calculate an invalid RPN sequence");
-    }
+    assert!(is_valid_rpn(tokens), "Invalid RPN sequence");
+
     let mut stack = Vec::new();
     for token in tokens {
         match token {
@@ -208,7 +226,16 @@ fn generate_valid_tokens_with_depth<'a>(
 }
 
 fn main() {
-    let operands = vec![Operand { value: 1.0 }, Operand { value: 2.0 }];
+    let operands = vec![
+        Operand {
+            symbol: "1.0".to_string(),
+            value: 1.0,
+        },
+        Operand {
+            symbol: "2.0".to_string(),
+            value: 2.0,
+        },
+    ];
     let unary_operators = vec![UnaryOperator {
         symbol: "^2".to_string(),
         function: |a| a * a,
@@ -221,15 +248,21 @@ fn main() {
     let valid_tokens =
         generate_valid_tokens(&operands, &unary_operators, &binary_operators, max_depth);
     for tokens in valid_tokens {
-        println!("{:?}: {}", tokens, calculate(&tokens));
+        println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
     }
 }
 
 #[test]
 fn test_calculate() {
     let tokens = vec![
-        Token::Operand(Operand { value: 1.0 }),
-        Token::Operand(Operand { value: 2.0 }),
+        Token::Operand(Operand {
+            symbol: "1.0".to_string(),
+            value: 1.0,
+        }),
+        Token::Operand(Operand {
+            symbol: "2.0".to_string(),
+            value: 2.0,
+        }),
         Token::UnaryOperator(UnaryOperator {
             symbol: "^2".to_string(),
             function: |a| a * a,
