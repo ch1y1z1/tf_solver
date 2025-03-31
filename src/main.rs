@@ -1,5 +1,3 @@
-use itertools::{Itertools, iproduct};
-
 #[derive(Clone, Debug)]
 struct Operand {
     value: f64,
@@ -125,78 +123,24 @@ fn generate_valid_tokens_with_depth(
         let u = unary_operator_num;
         let n = depth - u; // Calculate operand_num based on depth and u
 
-        // We need at least one operand for a meaningful expression that results in a value.
-        // If n = 0, this combination is impossible according to RPN rules (need n = b + 1).
-        if n == 0 {
-            // Return an empty iterator for this invalid configuration
-            return itertools::Either::Left(std::iter::empty());
-            // Or using Vec::new().into_iter() if Either is not preferred and type matches
-            // return Vec::new().into_iter(); // Requires turbofish or type hint
+        fn aux(
+            operands: &[Operand],
+            unary_operators: &[UnaryOperator],
+            binary_operators: &[BinaryOperator],
+            operand_num: usize,
+            unary_operator_num: usize,
+            binary_operator_num: usize,
+            acc: Vec<Token>,
+            stack_size: usize,
+        ) -> impl Iterator<Item = Vec<Token>> {
+            if unary_operator_num == 0 {
+                if binary_operator_num == 0 {
+                    return vec![acc].into_iter();
+                }
+            }
         }
 
-        let b = n - 1; // Calculate required binary_operator_num
-
-        // --- Pre-computation checks ---
-        // Check if we have the necessary components available.
-        // If we need operands but the operands slice is empty, we can't proceed.
-        if n > 0 && operands.is_empty() {
-            return itertools::Either::Left(std::iter::empty());
-        }
-        // If we need unary operators but the unary_operators slice is empty.
-        if u > 0 && unary_operators.is_empty() {
-            return itertools::Either::Left(std::iter::empty());
-        }
-        // If we need binary operators but the binary_operators slice is empty.
-        if b > 0 && binary_operators.is_empty() {
-            return itertools::Either::Left(std::iter::empty());
-        }
-        // --- End Pre-computation checks ---
-
-        // 1. Generate all combinations (with repetition) of choosing n operands,
-        //    u unary operators, and b binary operators.
-
-        // Choose n operands
-        let operand_choices = (0..n)
-            .map(|_| operands.iter().cloned().map(Token::Operand))
-            .multi_cartesian_product(); // Iterator over Vec<Token::Operand>
-
-        // Choose u unary operators
-        let unary_choices = (0..u)
-            .map(|_| unary_operators.iter().cloned().map(Token::UnaryOperator))
-            .multi_cartesian_product(); // Iterator over Vec<Token::UnaryOperator>
-
-        // Choose b binary operators
-        let binary_choices = (0..b)
-            .map(|_| binary_operators.iter().cloned().map(Token::BinaryOperator))
-            .multi_cartesian_product(); // Iterator over Vec<Token::BinaryOperator>
-
-        // 2. Combine these choices using iproduct!
-        //    iproduct! handles cases where one or more choice iterators might be empty
-        //    (e.g., if u=0 or b=0).
-        let combined_choices = iproduct!(operand_choices, unary_choices, binary_choices);
-
-        // 3. For each combination of chosen tokens, generate all unique permutations
-        //    and filter them for RPN validity.
-        let result_iterator = combined_choices.flat_map(|(op_tokens, un_tokens, bin_tokens)| {
-            // Create the pool of tokens for this specific combination
-            let token_pool: Vec<Token> = op_tokens
-                .into_iter()
-                .chain(un_tokens.into_iter())
-                .chain(bin_tokens.into_iter())
-                .collect();
-
-            // Generate all unique permutations of the token pool
-            // The length of token_pool is n + u + b
-            let len = token_pool.len();
-            token_pool
-                .into_iter()
-                .permutations(len)
-                // Filter each permutation to keep only valid RPN sequences
-                .filter(|p| is_valid_rpn(p))
-        });
-
-        // Wrap the result iterator in Either to match the return type of the n=0 case
-        itertools::Either::Right(result_iterator)
+        vec![]
     }) // End of flat_map over unary_operator_num
 }
 
