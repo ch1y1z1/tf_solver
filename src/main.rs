@@ -1,4 +1,11 @@
-use std::iter;
+#![feature(float_gamma)]
+
+use itertools::Itertools;
+use rayon::prelude::*;
+use std::{
+    f64::consts::{E, PI},
+    iter,
+};
 
 #[derive(Clone, Debug)]
 struct Operand {
@@ -14,6 +21,12 @@ struct Operator<T> {
 
 type UnaryOperator = Operator<fn(f64) -> f64>;
 type BinaryOperator = Operator<fn(f64, f64) -> f64>;
+
+impl<T> Operator<T> {
+    fn new(symbol: String, function: T) -> Self {
+        Self { symbol, function }
+    }
+}
 
 #[derive(Clone)]
 enum Token {
@@ -228,28 +241,69 @@ fn generate_valid_tokens_with_depth<'a>(
 fn main() {
     let operands = vec![
         Operand {
-            symbol: "1.0".to_string(),
-            value: 1.0,
+            symbol: "e".to_string(),
+            value: E,
         },
         Operand {
-            symbol: "2.0".to_string(),
-            value: 2.0,
+            symbol: "pi".to_string(),
+            value: PI,
         },
     ];
-    let unary_operators = vec![UnaryOperator {
-        symbol: "^2".to_string(),
-        function: |a| a * a,
-    }];
-    let binary_operators = vec![BinaryOperator {
-        symbol: "+".to_string(),
-        function: |a, b| a + b,
-    }];
-    let max_depth = 2;
+    let unary_operators = vec![
+        UnaryOperator::new("sin".to_string(), |a| a.sin()),
+        UnaryOperator::new("cos".to_string(), |a| a.cos()),
+        UnaryOperator::new("tan".to_string(), |a| a.tan()),
+        UnaryOperator::new("asin".to_string(), |a| a.asin()),
+        UnaryOperator::new("acos".to_string(), |a| a.acos()),
+        UnaryOperator::new("atan".to_string(), |a| a.atan()),
+        UnaryOperator::new("sinh".to_string(), |a| a.sinh()),
+        UnaryOperator::new("cosh".to_string(), |a| a.cosh()),
+        UnaryOperator::new("tanh".to_string(), |a| a.tanh()),
+        UnaryOperator::new("asinh".to_string(), |a| a.asinh()),
+        UnaryOperator::new("acosh".to_string(), |a| a.acosh()),
+        UnaryOperator::new("atanh".to_string(), |a| a.atanh()),
+        UnaryOperator::new("coth".to_string(), |a| a.cosh() / a.sinh()),
+        UnaryOperator::new("csch".to_string(), |a| 1.0 / a.sinh()),
+        UnaryOperator::new("sech".to_string(), |a| 1.0 / a.cosh()),
+        UnaryOperator::new("cot".to_string(), |a| a.cos() / a.sin()),
+        UnaryOperator::new("csc".to_string(), |a| 1.0 / a.sin()),
+        UnaryOperator::new("sec".to_string(), |a| 1.0 / a.cos()),
+        UnaryOperator::new(
+            "sinc".to_string(),
+            |a| if a == 0.0 { 1.0 } else { a.sin() / a },
+        ),
+        UnaryOperator::new("sqrt".to_string(), |a| a.sqrt()),
+        UnaryOperator::new("abs".to_string(), |a| a.abs()),
+        UnaryOperator::new("ln".to_string(), |a| a.ln()),
+        UnaryOperator::new("log".to_string(), |a| a.log10()),
+        UnaryOperator::new("gamma".to_string(), |a| a.gamma()),
+        UnaryOperator::new("!".to_string(), |a| (a - 1.0).gamma()),
+        UnaryOperator::new("floor".to_string(), |a| a.floor()),
+        UnaryOperator::new("ceil".to_string(), |a| a.ceil()),
+    ];
+    let binary_operators = vec![
+        BinaryOperator::new("+".to_string(), |a, b| a + b),
+        BinaryOperator::new("-".to_string(), |a, b| a - b),
+        BinaryOperator::new("*".to_string(), |a, b| a * b),
+        BinaryOperator::new("/".to_string(), |a, b| a / b),
+        BinaryOperator::new("^".to_string(), |a, b| a.powf(b)),
+        BinaryOperator::new("mod".to_string(), |a, b| a % b),
+        BinaryOperator::new("min".to_string(), |a, b| a.min(b)),
+        BinaryOperator::new("max".to_string(), |a, b| a.max(b)),
+        BinaryOperator::new("atan2".to_string(), |a, b| a.atan2(b)),
+    ];
+    let max_depth = 6;
     let valid_tokens =
         generate_valid_tokens(&operands, &unary_operators, &binary_operators, max_depth);
-    for tokens in valid_tokens {
-        println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
-    }
+    valid_tokens.chunks(2 ^ 16).into_iter().for_each(|chunk| {
+        chunk
+            .collect::<Vec<_>>()
+            .par_iter()
+            .filter(|tokens| (calculate(&tokens) - 613.0).abs() < 1e-1)
+            .for_each(|tokens| {
+                println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
+            });
+    });
 }
 
 #[test]
