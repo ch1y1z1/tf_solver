@@ -1,11 +1,13 @@
 #![feature(float_gamma)] // 启用浮点数gamma函数特性
 
+use clap::Parser;
 use itertools::Itertools; // 导入迭代器工具集
-use rayon::prelude::*; // 导入并行迭代器支持
+use rayon::prelude::*;
 use std::{
     f64::consts::{E, PI}, // 导入数学常量e和π
     iter,
 };
+use tracing::info; // 导入并行迭代器支持
 
 // 定义操作数结构体，包含符号和数值
 #[derive(Clone, Debug)]
@@ -279,8 +281,50 @@ fn generate_valid_tokens_with_depth<'a>(
     }))
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short = 't', long)]
+    target: f64,
+    #[arg(short = 'd', long, default_value_t = 6)]
+    max_depth: usize,
+    #[arg(short = 'e', long, default_value_t = 1e-2)]
+    tolerance: f64,
+    #[arg(short = 'o', long)]
+    output: Option<String>,
+    #[arg(short = 'c', long, default_value_t = 2 ^ 16)]
+    chunk_size: usize,
+}
+
 // 主函数
 fn main() {
+    let args = Args::parse();
+    let file_appender = if let Some(output_file) = &args.output {
+        Some(tracing_appender::rolling::RollingFileAppender::new(
+            tracing_appender::rolling::Rotation::NEVER,
+            ".",         // 文件夹
+            output_file, // 文件路径
+        ))
+    } else {
+        None
+    };
+
+    // 初始化日志订阅器
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false)
+        .with_writer(std::io::stdout);
+
+    if let Some(appender) = file_appender {
+        subscriber.with_writer(appender).init();
+    } else {
+        subscriber.init();
+    }
+
     // 定义基本操作数：e和π
     let operands = vec![
         Operand {
@@ -290,6 +334,10 @@ fn main() {
         Operand {
             symbol: "pi".to_string(),
             value: PI,
+        },
+        Operand {
+            symbol: "γ".to_string(),
+            value: 0.57721566490153286060651209,
         },
     ];
 
@@ -340,21 +388,22 @@ fn main() {
         BinaryOperator::new("atan2".to_string(), |a, b| a.atan2(b)),
     ];
 
-    let max_depth = 6; // 设置最大深度
+    let max_depth = args.max_depth; // 设置最大深度
     let valid_tokens =
         generate_valid_tokens(&operands, &unary_operators, &binary_operators, max_depth);
 
     // 并行处理生成的token序列
     valid_tokens
-        .chunks(2 ^ 16 /* around MiB in memory */)
+        .chunks(args.chunk_size)
         .into_iter()
         .for_each(|chunk| {
             chunk
                 .collect::<Vec<_>>()
                 .par_iter()
-                .filter(|tokens| (calculate(&tokens) - 613.0).abs() < 1e-1) // 筛选结果接近613的表达式
+                .filter(|tokens| (calculate(&tokens) - args.target).abs() < args.tolerance) // 筛选结果接近613的表达式
                 .for_each(|tokens| {
                     println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
+                    info!("{}: {}", TokenVec(&tokens), calculate(&tokens));
                 });
         });
 }
