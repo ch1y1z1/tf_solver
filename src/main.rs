@@ -288,12 +288,14 @@ struct Args {
     target: f64,
     #[arg(short = 'd', long, default_value_t = 6)]
     max_depth: usize,
-    #[arg(short = 'e', long, default_value_t = 1e-2)]
+    #[arg(short = 'e', long, default_value_t = 1.0)]
     tolerance: f64,
     #[arg(short = 'o', long)]
     output: Option<String>,
     #[arg(short = 'c', long, default_value_t = 2 ^ 16)]
     chunk_size: usize,
+    #[arg(short = 'n', long)]
+    num_threads: Option<usize>,
 }
 
 // 主函数
@@ -308,6 +310,13 @@ fn main() {
     } else {
         None
     };
+
+    if let Some(num_threads) = args.num_threads {
+        rayon::ThreadPoolBuilder::default()
+            .num_threads(num_threads)
+            .build_global()
+            .unwrap();
+    }
 
     // 初始化日志订阅器
     let subscriber = tracing_subscriber::fmt()
