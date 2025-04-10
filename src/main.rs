@@ -1,7 +1,8 @@
 #![feature(float_gamma)] // 启用浮点数gamma函数特性
+mod chunk_par;
 
+use chunk_par::ChunkIterator;
 use clap::Parser;
-use itertools::Itertools; // 导入迭代器工具集
 use rayon::prelude::*;
 use std::{
     f64::consts::{E, PI}, // 导入数学常量e和π
@@ -394,12 +395,12 @@ fn main() {
 
     // 并行处理生成的token序列
     valid_tokens
-        .chunks(args.chunk_size)
+        .chunks_n(args.chunk_size)
         .into_iter()
+        .par_bridge()
         .for_each(|chunk| {
             chunk
-                .collect::<Vec<_>>()
-                .par_iter()
+                .into_iter()
                 .filter(|tokens| (calculate(&tokens) - args.target).abs() < args.tolerance) // 筛选结果接近613的表达式
                 .for_each(|tokens| {
                     println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
@@ -431,4 +432,37 @@ fn test_calculate() {
     ];
     let result = calculate(&tokens);
     assert_eq!(result, 5.0); // 验证计算结果是否正确
+}
+
+#[test]
+fn test_calculate_2() {
+    //  γ atan ! coth gamma floor: 613
+    let tokens = vec![
+        Token::Operand(Operand {
+            symbol: "γ".to_string(),
+            value: 0.57721566490153286060651209,
+        }),
+        Token::UnaryOperator(UnaryOperator {
+            symbol: "atan".to_string(),
+            function: |a| a.atan(),
+        }),
+        Token::UnaryOperator(UnaryOperator {
+            symbol: "!".to_string(),
+            function: |a| (a - 1.0).gamma(),
+        }),
+        Token::UnaryOperator(UnaryOperator {
+            symbol: "coth".to_string(),
+            function: |a| 1.0 / a.tanh(),
+        }),
+        Token::UnaryOperator(UnaryOperator {
+            symbol: "gamma".to_string(),
+            function: |a| a.gamma(),
+        }),
+        Token::UnaryOperator(UnaryOperator {
+            symbol: "floor".to_string(),
+            function: |a| a.floor(),
+        }),
+    ];
+    let result = calculate(&tokens);
+    assert_eq!(result, 613.0); // 验证计算结果是否正确
 }
