@@ -7,8 +7,8 @@ mod rpn;
 mod types;
 
 use clap::Parser;
+use crossbeam_channel::bounded;
 use itertools::Itertools; // 导入迭代器工具集
-use rayon::prelude::*;
 use tracing::info; // 导入并行迭代器支持
 
 use crate::cli::Args;
@@ -63,20 +63,35 @@ fn main() {
         max_depth,
     );
 
-    // 并行处理生成的token序列
-    valid_tokens
-        .chunks(args.chunk_size)
-        .into_iter()
-        .for_each(|chunk| {
-            chunk
-                .collect::<Vec<_>>()
-                .par_iter()
-                .filter(|tokens| (calculate(&tokens) - args.target).abs() < args.tolerance) // 筛选结果接近613的表达式
-                .for_each(|tokens| {
-                    println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
-                    info!("{}: {}", TokenVec(&tokens), calculate(&tokens));
-                });
-        });
+    let num_threads = args.num_threads.unwrap_or(num_cpus::get());
+    let channel_capacity = num_threads * 4;
+    let (sender, receiver) = bounded::<Vec<Vec<Token>>>(channel_capacity);
+
+    crossbeam::scope(|s| {
+        for _ in 0..num_threads {
+            let receiver_clone = receiver.clone();
+            s.spawn(move |_| {
+                while let Ok(chunk) = receiver_clone.recv() {
+                    chunk
+                        .into_iter()
+                        .filter(|tokens| (calculate(&tokens) - args.target).abs() < args.tolerance) // 筛选结果接近613的表达式
+                        .for_each(|tokens| {
+                            println!("{}: {}", TokenVec(&tokens), calculate(&tokens));
+                            info!("{}: {}", TokenVec(&tokens), calculate(&tokens));
+                        });
+                }
+            });
+        }
+        drop(receiver);
+
+        for chunk in &valid_tokens.chunks(args.chunk_size) {
+            if sender.send(chunk.collect()).is_err() {
+                eprintln!("Error sending chunk: Channel closed.");
+                break;
+            }
+        }
+    })
+    .unwrap();
 }
 
 #[cfg(test)]
